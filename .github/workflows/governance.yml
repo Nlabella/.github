@@ -1,0 +1,94 @@
+name: Governance
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: governance-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  governance:
+    name: governance
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        # `fetch-depth: 0` is here for the size gate below and for nothing else.
+        # The default is a single commit, and against a checkout of one commit
+        # the diff with the base is empty, so the gate reports "this change is
+        # small" — the one answer a size gate must never give wrongly, and it
+        # gives it silently, on the largest pull request of the year.
+        id: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check the size of the change
+        # A pull request over 6000 hand-written added lines is refused, which
+        # CONTRIBUTING says and which every repository this file sets policy
+        # for already enforces. The rule was written here first and checked
+        # here last.
+        #
+        # Its own step, rather than a line inside another one, because a gate
+        # sharing a step with a second gate reports one verdict for two
+        # objections. It reads the tree, so the checkout is a real dependency
+        # and is named; `!cancelled()` because a size objection is independent
+        # of every other one and has to be heard on the same push.
+        #
+        # BASE_SHA is what GitHub recorded for the pull request. On a push there
+        # is none, and the script falls back to the merge base with origin/main.
+        id: diff-size
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 tools/quality/check_diff_size.py
+
+      - name: Check the published content
+        # This repository is public and sets policy for private ones. Its
+        # strictest rule is also the one with the worst failure mode, so it is
+        # the one with a check behind it.
+        run: python3 tools/quality/verify_public_content.py
+
+      - name: Test the check itself
+        # A gate nobody has verified is a gate nobody should trust. These tests
+        # already caught one pattern that silently matched nothing.
+        run: python3 -m unittest discover -s tests
+
+      - name: Check the branch name
+        # CONTRIBUTING allows feature/, fix/ and chore/ and nothing else. The
+        # obvious home for this is a ruleset, and a ruleset cannot do the job
+        # twice over: a branch_name_pattern rule is accepted, reported as
+        # applying, and not enforced below an Enterprise plan — and a private
+        # repository on this account's plan has no rulesets at all. A gate that
+        # cannot fail is worse than no gate, because it gets trusted, so the
+        # rule lives here instead where it demonstrably fails.
+        #
+        # This does not prevent the branch from being created. It prevents it
+        # from being merged, which is the point at which the name becomes
+        # permanent.
+        if: github.event_name == 'pull_request'
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          case "$BRANCH" in
+            dependabot/*)
+              echo "$BRANCH is Dependabot's to name" ;;
+            *)
+              if echo "$BRANCH" | grep -qE '^(feature|fix|chore)/[a-z0-9]+(-[a-z0-9]+)*$'; then
+                echo "$BRANCH is a permitted branch name"
+              else
+                echo "::error::'$BRANCH' is not a permitted branch name."
+                echo "Use feature/<description>, fix/<description> or chore/<description>,"
+                echo "lowercase with hyphens. Rename the branch and the pull request follows it."
+                exit 1
+              fi ;;
+          esac
