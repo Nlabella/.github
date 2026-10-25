@@ -15,7 +15,7 @@ Prima di qualunque altra cosa, carica la memoria degli agenti:
    punto 3. Altrimenti aggiungi `Mylabella/agent-memory` alla sessione (in
    Claude Code cloud: strumento `add_repo`, in lettura) e clonalo accanto a
    questo repository:
-   `git clone -b develop https://github.com/Mylabella/agent-memory ../agent-memory`
+   `git clone https://github.com/Mylabella/agent-memory ../agent-memory`
 2. Leggi `../agent-memory/MEMORY.md` per intero.
 3. Apri `shared/`, poi la cartella di questo account e di questo repository
    se esistono, seguendo i `[[link]]`.
